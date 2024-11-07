@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { App } = require('@slack/bolt');
 const OpenAI = require('openai');
+const stringSimilarity = require('string-similarity');
 
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
@@ -13,8 +14,21 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Your Slack user ID - add this to your .env file
-const YOUR_USER_ID = process.env.SLACK_USER_ID;
+const SIMILARITY_THRESHOLD = 0.8; // Adjust this value (0-1) to control how similar todos need to be to be considered duplicates
+
+// Keep track of recent todos to check for duplicates
+const recentTodos = new Set();
+
+function isSimilarToExisting(newTodo) {
+  const newTodoLower = newTodo.toLowerCase();
+  for (const existingTodo of recentTodos) {
+    const similarity = stringSimilarity.compareTwoStrings(newTodoLower, existingTodo);
+    if (similarity > SIMILARITY_THRESHOLD) {
+      return true;
+    }
+  }
+  return false;
+}
 
 app.message(async ({ message, client }) => {
   process.stdout.write(`Analyzing message: ${message.text}\n`);
@@ -38,12 +52,43 @@ app.message(async ({ message, client }) => {
     if (response.includes('yes')) {
       process.stdout.write('🎯 Todo item detected!\n');
       
-      // Send DM to you
-      await client.chat.postMessage({
-        channel: YOUR_USER_ID, // This will create a DM
-        text: `New Todo detected!\n>${message.text}\nFrom: <@${message.user}> in <#${message.channel}>`,
-        unfurl_links: false
-      });
+      // Check for duplicates
+      if (isSimilarToExisting(message.text)) {
+        process.stdout.write('⚠️ Duplicate todo detected, skipping...\n');
+        return;
+      }
+      
+      try {
+        // Send message to Slackdo
+        const result = await client.chat.postMessage({
+          channel: process.env.SLACKDO_CHANNEL_ID,
+          text: message.text
+        });
+
+        // Add reactions for status tracking
+        await client.reactions.add({
+          channel: result.channel,
+          timestamp: result.ts,
+          name: 'white_check_mark'
+        });
+        
+        await client.reactions.add({
+          channel: result.channel,
+          timestamp: result.ts,
+          name: 'x'
+        });
+
+        // Add to recent todos
+        recentTodos.add(message.text.toLowerCase());
+        
+        // Optional: Clear old todos after some time
+        setTimeout(() => {
+          recentTodos.delete(message.text.toLowerCase());
+        }, 24 * 60 * 60 * 1000); // Clear after 24 hours
+        
+      } catch (listError) {
+        process.stdout.write(`❌ Error creating list item: ${listError}\n`);
+      }
     }
   } catch (error) {
     process.stdout.write(`❌ Error checking todo: ${error}\n`);
