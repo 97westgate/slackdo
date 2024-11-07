@@ -1,6 +1,6 @@
 # Slackdo Bot
 
-A simple Slack bot that monitors messages and detects todo items using OpenAI's GPT-3.5.
+A simple Slack bot that monitors messages and detects todo items using OpenAI's GPT-4 Turbo.
 
 ## Prerequisites
 
@@ -63,7 +63,7 @@ You should see: "⚡️ Slack bot is running!"
 1. Invite the bot to channels you want it to monitor:
    - Type `/invite @YourBotName` in the channel
 
-2. The bot will analyze messages using GPT-3.5 to detect todo items and tasks
+2. The bot will analyze messages using GPT-4 Turbo to detect todo items and tasks
 3. When a todo item is detected:
    - It checks for similar existing todos to prevent duplicates
    - Sends the todo to Slackdo bot

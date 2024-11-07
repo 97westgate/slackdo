@@ -35,7 +35,7 @@ app.message(async ({ message, client }) => {
   
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: "gpt-4-0613", // gpt-4o when time to impress folx
       messages: [{
         role: "system",
         content: "You are a task detector. Respond with only 'yes' or 'no'."
