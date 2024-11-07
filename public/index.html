@@ -13,14 +13,29 @@
     <script>
         const { useState, useEffect } = React;
 
-        function TodoCard({ todo }) {
+        function TodoCard({ todo, onToggle }) {
+            const handleClick = (e) => {
+                e.stopPropagation();  // Prevent double triggers
+                onToggle(todo.timestamp);
+            };
+
             return React.createElement('div', { 
-                className: 'todo-card'
+                className: `todo-card ${todo.status || ''}`
             }, [
                 React.createElement('div', { 
                     key: 'task',
                     className: 'todo-task' 
-                }, `📌 ${todo.task}`),
+                }, [
+                    React.createElement('button', {
+                        key: 'checkbox',
+                        className: `todo-checkbox ${todo.status === 'completed' ? 'checked' : ''}`,
+                        onClick: handleClick
+                    }, todo.status === 'completed' ? '✓' : ''),
+                    React.createElement('span', {
+                        key: 'text',
+                        className: `todo-text ${todo.status === 'completed' ? 'completed' : ''}`
+                    }, todo.task)
+                ]),
                 todo.deadline && React.createElement('div', { 
                     key: 'deadline',
                     className: 'todo-deadline' 
@@ -46,15 +61,17 @@
         function App() {
             const [todos, setTodos] = useState([]);
             const [status, setStatus] = useState('Connecting...');
+            const [ws, setWs] = useState(null);
 
             useEffect(() => {
-                const ws = new WebSocket(`ws://${window.location.host}`);
+                const websocket = new WebSocket(`ws://${window.location.host}`);
+                setWs(websocket);
                 
-                ws.onopen = () => {
+                websocket.onopen = () => {
                     setStatus('Connected!');
                 };
 
-                ws.onmessage = (event) => {
+                websocket.onmessage = (event) => {
                     const data = JSON.parse(event.data);
                     if (data.type === 'todos') {
                         setTodos(data.data);
@@ -62,16 +79,33 @@
                     }
                 };
 
-                ws.onerror = (error) => {
+                websocket.onerror = (error) => {
                     setStatus('Error: ' + error);
                 };
 
-                ws.onclose = () => {
+                websocket.onclose = () => {
                     setStatus('Disconnected');
                 };
 
-                return () => ws.close();
+                return () => websocket.close();
             }, []);
+
+            const handleToggle = (timestamp) => {
+                console.log('Toggling todo:', timestamp); // Debug log
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    const message = JSON.stringify({
+                        type: 'toggleStatus',
+                        timestamp
+                    });
+                    console.log('Sending message:', message); // Debug log
+                    ws.send(message);
+                } else {
+                    console.log('WebSocket not ready:', { 
+                        ws: !!ws, 
+                        readyState: ws ? ws.readyState : 'no socket' 
+                    }); // Debug log
+                }
+            };
 
             return React.createElement('div', { className: 'app' }, [
                 React.createElement('h1', { key: 'title' }, '📝 Slackdo Todos'),
@@ -85,7 +119,8 @@
                 }, todos.map(todo => 
                     React.createElement(TodoCard, { 
                         key: todo.timestamp,
-                        todo: todo
+                        todo: todo,
+                        onToggle: handleToggle
                     })
                 ))
             ]);

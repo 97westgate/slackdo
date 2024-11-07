@@ -1,13 +1,11 @@
 require('dotenv').config();
 const { App } = require('@slack/bolt');
 const OpenAI = require('openai');
-const stringSimilarity = require('string-similarity');
-const { formatDate, formatTask } = require('./formatter');
 const express = require('express');
 const path = require('path');
-const { WebSocketServer } = require('ws');
+const { WebSocketServer, WebSocket } = require('ws');
 const http = require('http');
-const { WebSocket } = require('ws');
+const { formatDate, formatTask } = require('./formatter');
 
 // Initialize Express
 const expressApp = express();
@@ -15,156 +13,72 @@ expressApp.use(express.static('public'));
 
 // Initialize Slack app
 const slackApp = new App({
-  token: process.env.SLACK_BOT_TOKEN,
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  socketMode: true,
-  appToken: process.env.SLACK_APP_TOKEN
+    token: process.env.SLACK_BOT_TOKEN,
+    signingSecret: process.env.SLACK_SIGNING_SECRET,
+    socketMode: true,
+    appToken: process.env.SLACK_APP_TOKEN
 });
 
+// Initialize OpenAI
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+    apiKey: process.env.OPENAI_API_KEY,
 });
 
 // Store todos in memory
 const todos = [];
 
-// Add a cache for user and channel names
+// Name cache for users and channels
 const nameCache = {
-  users: {},
-  channels: {}
+    users: {},
+    channels: {}
 };
-
-// Function to resolve names
-async function resolveName(id, type) {
-    console.log(`Resolving ${type} name for ID:`, id);
-    try {
-        if (type === 'user') {
-            if (!nameCache.users[id]) {
-                console.log('Fetching user info from Slack API...');
-                const result = await slackApp.client.users.info({ user: id });
-                nameCache.users[id] = result.user.real_name || result.user.name;
-                console.log('Resolved user name:', nameCache.users[id]);
-            }
-            return nameCache.users[id];
-        } else {
-            if (!nameCache.channels[id]) {
-                console.log('Fetching channel info from Slack API...');
-                const result = await slackApp.client.conversations.info({ channel: id });
-                nameCache.channels[id] = result.channel.name;
-                console.log('Resolved channel name:', nameCache.channels[id]);
-            }
-            return nameCache.channels[id];
-        }
-    } catch (error) {
-        console.error(`Error resolving ${type} name for ${id}:`, error);
-        return id;
-    }
-}
-
-// API endpoint to get todos
-expressApp.get('/api/todos', (req, res) => {
-    res.json(todos);
-});
-
-// API endpoint to resolve references
-expressApp.get('/api/resolve-references', async (req, res) => {
-  try {
-    const userCache = {};
-    const channelCache = {};
-    
-    for (const todo of todos) {
-      const userId = todo.user.match(/<@([A-Z0-9]+)>/)[1];
-      const channelId = todo.channel.match(/<#([A-Z0-9]+)>/)[1];
-      
-      if (!userCache[userId]) {
-        const userInfo = await slackApp.client.users.info({ user: userId });
-        userCache[userId] = userInfo.user.real_name || userInfo.user.name;
-      }
-      
-      if (!channelCache[channelId]) {
-        const channelInfo = await slackApp.client.conversations.info({ channel: channelId });
-        channelCache[channelId] = channelInfo.channel.name;
-      }
-    }
-    
-    res.json({ users: userCache, channels: channelCache });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 // Create HTTP server
 const server = http.createServer(expressApp);
 
-// Create WebSocket server
+// Create WebSocket server for frontend
 const wss = new WebSocketServer({ server });
 
 // Track connected clients
 const clients = new Set();
 
-// Function to convert old todo format to new format
-async function convertTodo(todo) {
-    console.log('Converting todo:', todo);
-    
-    // If todo is already in new format, return as is
-    if (todo.user && typeof todo.user === 'object') {
-        console.log('Todo already in new format');
-        return todo;
-    }
-
-    try {
-        // Extract IDs from the old format
-        const userMatch = todo.user.match(/<@([A-Z0-9]+)>/);
-        const channelMatch = todo.channel.match(/<#([A-Z0-9]+)>/);
-        
-        if (!userMatch || !channelMatch) {
-            console.error('Failed to extract IDs:', { user: todo.user, channel: todo.channel });
-            return todo;
-        }
-
-        const userId = userMatch[1];
-        const channelId = channelMatch[1];
-        
-        console.log('Extracted IDs:', { userId, channelId });
-
-        // Resolve names
-        const userName = await resolveName(userId, 'user');
-        const channelName = await resolveName(channelId, 'channel');
-        
-        console.log('Resolved names:', { userName, channelName });
-
-        // Return todo in new format
-        return {
-            ...todo,
-            user: {
-                id: userId,
-                name: userName
-            },
-            channel: {
-                id: channelId,
-                name: channelName
-            }
-        };
-    } catch (error) {
-        console.error('Error converting todo:', error);
-        return todo;
-    }
-}
-
-// Update WebSocket connection handler
-wss.on('connection', async (ws) => {
+// WebSocket connection handler
+wss.on('connection', (ws) => {
     console.log('New client connected!');
     clients.add(ws);
     
-    // Convert all todos to new format before sending
-    const convertedTodos = await Promise.all(todos.map(convertTodo));
-    
+    // Send current todos
     const message = JSON.stringify({
         type: 'todos',
-        data: convertedTodos
+        data: todos
     });
-    console.log('Sending initial todos:', message);
     ws.send(message);
+
+    // Handle status toggle messages
+    ws.on('message', async (data) => {
+        console.log('Received WebSocket message:', data.toString()); // Debug log
+        try {
+            const message = JSON.parse(data);
+            console.log('Parsed message:', message); // Debug log
+            
+            if (message.type === 'toggleStatus') {
+                console.log('Looking for todo with timestamp:', message.timestamp); // Debug log
+                console.log('Current todos:', todos); // Debug log
+                
+                const todo = todos.find(t => t.timestamp === message.timestamp);
+                if (todo) {
+                    console.log('Found todo, current status:', todo.status); // Debug log
+                    todo.status = todo.status === 'completed' ? null : 'completed';
+                    console.log('New status:', todo.status); // Debug log
+                    broadcastTodos();
+                } else {
+                    console.log('Todo not found!'); // Debug log
+                }
+            }
+        } catch (error) {
+            console.error('Error handling WebSocket message:', error);
+        }
+    });
 
     ws.on('close', () => {
         console.log('Client disconnected');
@@ -172,14 +86,13 @@ wss.on('connection', async (ws) => {
     });
 });
 
-// Update broadcast function
-async function broadcastTodos() {
-    const convertedTodos = await Promise.all(todos.map(convertTodo));
+// Broadcast todos to all clients
+function broadcastTodos() {
     const message = JSON.stringify({
         type: 'todos',
-        data: convertedTodos
+        data: todos
     });
-    console.log('Broadcasting todos:', message);
+    console.log('Broadcasting todos:', message); // Debug log
     
     clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
@@ -218,6 +131,33 @@ function isSimilarToExisting(newTodo) {
     }
   }
   return false;
+}
+
+// Add name resolution function
+async function resolveName(id, type) {
+    console.log(`Resolving ${type} name for ID:`, id);
+    try {
+        if (type === 'user') {
+            if (!nameCache.users[id]) {
+                console.log('Fetching user info from Slack API...');
+                const result = await slackApp.client.users.info({ user: id });
+                nameCache.users[id] = result.user.real_name || result.user.name;
+                console.log('Resolved user name:', nameCache.users[id]);
+            }
+            return nameCache.users[id];
+        } else {
+            if (!nameCache.channels[id]) {
+                console.log('Fetching channel info from Slack API...');
+                const result = await slackApp.client.conversations.info({ channel: id });
+                nameCache.channels[id] = result.channel.name;
+                console.log('Resolved channel name:', nameCache.channels[id]);
+            }
+            return nameCache.channels[id];
+        }
+    } catch (error) {
+        console.error(`Error resolving ${type} name for ${id}:`, error);
+        return id;
+    }
 }
 
 slackApp.message(async ({ message, client }) => {
@@ -310,13 +250,16 @@ slackApp.message(async ({ message, client }) => {
 
 // Start the servers
 (async () => {
-  try {
-    await slackApp.start();
-    server.listen(3000, () => {
-      console.log('⚡️ Slack bot and frontend running on http://localhost:3000');
-      console.log('Current todos:', todos);
-    });
-  } catch (error) {
-    console.error('❌ Error starting servers:', error);
-  }
+    try {
+        // Start Slack app first
+        await slackApp.start();
+        console.log('⚡️ Slack bot is running!');
+
+        // Then start HTTP/WebSocket server
+        server.listen(3000, () => {
+            console.log('💻 Frontend running on http://localhost:3000');
+        });
+    } catch (error) {
+        console.error('❌ Error starting servers:', error);
+    }
 })();
