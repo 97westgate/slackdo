@@ -16,7 +16,7 @@ A simple Slack bot that monitors messages and detects todo items using OpenAI's 
    - `cd slackdo-bot`
 
 2. Install dependencies:
-   - `npm install @slack/bolt openai dotenv`
+   - `npm install @slack/bolt openai dotenv string-similarity`
 
 3. Create a `.env` file in the root directory with the following structure:
 
@@ -25,6 +25,7 @@ A simple Slack bot that monitors messages and detects todo items using OpenAI's 
    SLACK_BOT_TOKEN=xoxb-your-bot-token-here
    SLACK_SIGNING_SECRET=your-signing-secret-here
    SLACK_APP_TOKEN=xapp-your-app-token-here
+   SLACKDO_CHANNEL_ID=D07V4EMTCTG-your-slackdo-dm-channel-id
 
    # OpenAI Credentials
    OPENAI_API_KEY=your-openai-api-key-here
@@ -48,6 +49,7 @@ In your Slack App settings (api.slack.com), add these Bot Token Scopes:
 - `chat:write`
 - `im:history`
 - `im:read`
+- `reactions:write` (for adding status reactions)
 
 ## Running the Bot
 
@@ -62,7 +64,11 @@ You should see: "⚡️ Slack bot is running!"
    - Type `/invite @YourBotName` in the channel
 
 2. The bot will analyze messages using GPT-3.5 to detect todo items and tasks
-3. When a todo item is detected, it will log to the terminal
+3. When a todo item is detected:
+   - It checks for similar existing todos to prevent duplicates
+   - Sends the todo to Slackdo bot
+   - Adds ✅ and ❌ reactions for status tracking
+4. Duplicate todos are automatically cleared after 24 hours
 
 ## Troubleshooting
 
