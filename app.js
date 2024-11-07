@@ -8,13 +8,27 @@ const app = new App({
   appToken: process.env.SLACK_APP_TOKEN
 });
 
-app.message(async ({ message }) => {
-  if (message.channel === 'D07UTMDGGAY') {
-    console.log('new message!');
-  }
+// Debug: Log when the bot starts up
+process.stdout.write('Starting bot...\n');
+
+// Add error handling
+app.error(async (error) => {
+  process.stdout.write(`⚠️ Error: ${error.message}\n`);
+});
+
+// Listen to all messages
+app.message(async ({ message, say }) => {
+  process.stdout.write(`Received message in channel: ${message.channel}\n`);
+  process.stdout.write(`Message content: ${message.text}\n`);
+  process.stdout.write(`Full message details: ${JSON.stringify(message, null, 2)}\n`);
 });
 
 (async () => {
-  await app.start();
-  console.log('⚡️ Slack bot is running and monitoring specific DM!');
+  try {
+    const port = 3000;
+    await app.start(port);
+    process.stdout.write(`⚡️ Slack bot is running on port ${port}!\n`);
+  } catch (error) {
+    process.stdout.write(`❌ Error starting bot: ${error.message}\n`);
+  }
 })();
