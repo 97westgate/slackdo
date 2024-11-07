@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slackdo Todos</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    <script>
+        const { useState, useEffect } = React;
+
+        function TodoCard({ todo }) {
+            return React.createElement('div', { 
+                className: 'todo-card'
+            }, [
+                React.createElement('div', { 
+                    key: 'task',
+                    className: 'todo-task' 
+                }, `📌 ${todo.task}`),
+                todo.deadline && React.createElement('div', { 
+                    key: 'deadline',
+                    className: 'todo-deadline' 
+                }, `⏰ Due: ${todo.deadline}`),
+                React.createElement('div', { 
+                    key: 'meta',
+                    className: 'todo-meta' 
+                }, [
+                    'From: ',
+                    React.createElement('span', {
+                        key: 'user',
+                        className: 'user-tag'
+                    }, `@${todo.user.name}`),
+                    ' in ',
+                    React.createElement('span', {
+                        key: 'channel',
+                        className: 'channel-tag'
+                    }, `#${todo.channel.name}`)
+                ])
+            ]);
+        }
+
+        function App() {
+            const [todos, setTodos] = useState([]);
+            const [status, setStatus] = useState('Connecting...');
+
+            useEffect(() => {
+                const ws = new WebSocket(`ws://${window.location.host}`);
+                
+                ws.onopen = () => {
+                    setStatus('Connected!');
+                };
+
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'todos') {
+                        setTodos(data.data);
+                        setStatus(`Loaded ${data.data.length} todos`);
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    setStatus('Error: ' + error);
+                };
+
+                ws.onclose = () => {
+                    setStatus('Disconnected');
+                };
+
+                return () => ws.close();
+            }, []);
+
+            return React.createElement('div', { className: 'app' }, [
+                React.createElement('h1', { key: 'title' }, '📝 Slackdo Todos'),
+                React.createElement('div', { 
+                    key: 'status',
+                    className: 'status-text'
+                }, status),
+                React.createElement('div', { 
+                    key: 'todos', 
+                    className: 'todos-container' 
+                }, todos.map(todo => 
+                    React.createElement(TodoCard, { 
+                        key: todo.timestamp,
+                        todo: todo
+                    })
+                ))
+            ]);
+        }
+
+        ReactDOM.render(
+            React.createElement(App),
+            document.getElementById('root')
+        );
+    </script>
+</body>
+</html> 
