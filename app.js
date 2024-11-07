@@ -2,6 +2,7 @@ require('dotenv').config();
 const { App } = require('@slack/bolt');
 const OpenAI = require('openai');
 const stringSimilarity = require('string-similarity');
+const { formatDate } = require('./dateFormatter');
 
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
@@ -34,8 +35,9 @@ app.message(async ({ message, client }) => {
   process.stdout.write(`Analyzing message: ${message.text}\n`);
   
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4-0613", // gpt-4o when time to impress folx
+    // First check if it's a todo
+    const isTaskCompletion = await openai.chat.completions.create({
+      model: "gpt-4-0613",
       messages: [{
         role: "system",
         content: "You are a task detector. Respond with only 'yes' or 'no'."
@@ -47,22 +49,68 @@ app.message(async ({ message, client }) => {
       temperature: 0.3,
     });
 
-    const response = completion.choices[0].message.content.trim().toLowerCase();
-    
-    if (response.includes('yes')) {
+    if (isTaskCompletion.choices[0].message.content.trim().toLowerCase().includes('yes')) {
       process.stdout.write('🎯 Todo item detected!\n');
       
+      // Parse the todo details
+      const parseCompletion = await openai.chat.completions.create({
+        model: "gpt-4-0613",
+        messages: [{
+          role: "system",
+          content: `Extract the core task, deadline, and assignee from the message. For deadlines:
+          - Convert relative dates to specific dates (e.g., "tomorrow" → "January 31, 2024")
+          - Include time if mentioned
+          - For rough deadlines, be specific (e.g., "before election" → "before November 5, 2024")
+          
+          Respond in JSON format: {"task": "core task", "deadline": "formatted date or null", "assignee": "assignee or null"}`
+        }, {
+          role: "user",
+          content: message.text
+        }],
+        max_tokens: 150,
+        temperature: 0.3,
+      });
+
+      const todoDetails = JSON.parse(parseCompletion.choices[0].message.content);
+      
       // Check for duplicates
-      if (isSimilarToExisting(message.text)) {
+      if (isSimilarToExisting(todoDetails.task)) {
         process.stdout.write('⚠️ Duplicate todo detected, skipping...\n');
         return;
       }
-      
+
+      // Format the message with cleaner deadline
+      let todoText = `📝 *Todo:* ${todoDetails.task.charAt(0).toUpperCase() + todoDetails.task.slice(1)}`;
+      if (todoDetails.deadline) {
+        const deadline = formatDate(todoDetails.deadline);
+        todoText += `\n⏰ *Due:* ${deadline}`;
+      }
+      if (todoDetails.assignee) {
+        todoText += `\n👤 *Assignee:* ${todoDetails.assignee}`;
+      }
+
       try {
-        // Send message to Slackdo
         const result = await client.chat.postMessage({
           channel: process.env.SLACKDO_CHANNEL_ID,
-          text: message.text
+          text: todoDetails.task, // Adding fallback text for notifications
+          blocks: [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": todoText
+              }
+            },
+            {
+              "type": "context",
+              "elements": [
+                {
+                  "type": "mrkdwn",
+                  "text": `From: <@${message.user}> in <#${message.channel}>`
+                }
+              ]
+            }
+          ]
         });
 
         // Add reactions for status tracking
@@ -79,19 +127,18 @@ app.message(async ({ message, client }) => {
         });
 
         // Add to recent todos
-        recentTodos.add(message.text.toLowerCase());
+        recentTodos.add(todoDetails.task.toLowerCase());
         
-        // Optional: Clear old todos after some time
         setTimeout(() => {
-          recentTodos.delete(message.text.toLowerCase());
-        }, 24 * 60 * 60 * 1000); // Clear after 24 hours
+          recentTodos.delete(todoDetails.task.toLowerCase());
+        }, 24 * 60 * 60 * 1000);
         
       } catch (listError) {
         process.stdout.write(`❌ Error creating list item: ${listError}\n`);
       }
     }
   } catch (error) {
-    process.stdout.write(`❌ Error checking todo: ${error}\n`);
+    process.stdout.write(`❌ Error: ${error}\n`);
   }
 });
 
