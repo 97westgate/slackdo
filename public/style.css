@@ -22,8 +22,9 @@ body {
     padding: 16px;
     margin-bottom: 16px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    transition: transform 0.2s;
+    transition: all 0.2s;
     cursor: pointer;
+    position: relative;
 }
 
 .todo-card:hover {
@@ -111,4 +112,30 @@ body {
 .todo-task {
     display: flex;
     align-items: center;
+}
+
+.todo-card:focus {
+    outline: 2px solid #4CAF50;
+    outline-offset: 2px;
+}
+
+.todos-container {
+    position: relative;
+    padding: 16px;
+}
+
+/* Add visual guides for indentation */
+.todo-card::before {
+    content: '';
+    position: absolute;
+    left: -16px;
+    top: 50%;
+    width: 16px;
+    height: 2px;
+    background: #e0e0e0;
+    display: none;
+}
+
+.todo-card[style*="margin-left"] ::before {
+    display: block;
 }

@@ -8,36 +8,44 @@ const todosState = atom({
     default: []
 });
 
-const referencesState = atom({
-    key: 'referencesState',
-    default: { users: {}, channels: {} }
-});
-
 // TodoList Component
 function TodoList() {
-    const [todos] = useRecoilState(todosState);
-    const [references] = useRecoilState(referencesState);
+    const [todos, setTodos] = useRecoilState(todosState);
 
-    const formatReference = (ref, type) => {
-        const match = ref?.match(/<[@#]([A-Z0-9]+)>/);
-        if (!match) return ref;
-        const id = match[1];
-        const name = type === 'user' 
-            ? references.users[id] 
-            : references.channels[id];
-        return name || (type === 'user' ? '@unknown' : '#unknown');
+    const handleToggle = (timestamp) => {
+        const ws = new WebSocket(`ws://${window.location.host}`);
+        ws.onopen = () => {
+            ws.send(JSON.stringify({
+                type: 'toggleStatus',
+                timestamp
+            }));
+        };
     };
 
     return React.createElement('div', { className: 'todos-container' },
         todos.map(todo => 
             React.createElement('div', { 
                 key: todo.timestamp,
-                className: `todo-card ${todo.status || ''}`
+                className: `todo-card ${todo.status || ''}`,
+                onClick: () => handleToggle(todo.timestamp)
             }, [
                 React.createElement('div', { 
                     key: 'task',
                     className: 'todo-task' 
-                }, `📌 ${todo.task}`),
+                }, [
+                    React.createElement('button', {
+                        key: 'checkbox',
+                        className: `todo-checkbox ${todo.status === 'completed' ? 'checked' : ''}`,
+                        onClick: (e) => {
+                            e.stopPropagation();
+                            handleToggle(todo.timestamp);
+                        }
+                    }, todo.status === 'completed' ? '✓' : ''),
+                    React.createElement('span', {
+                        key: 'text',
+                        className: `todo-text ${todo.status === 'completed' ? 'completed' : ''}`
+                    }, todo.task)
+                ]),
                 todo.deadline && React.createElement('div', { 
                     key: 'deadline',
                     className: 'todo-deadline' 
@@ -47,15 +55,15 @@ function TodoList() {
                     className: 'todo-meta' 
                 }, [
                     'From: ',
-                    React.createElement('span', { 
+                    React.createElement('span', {
                         key: 'user',
-                        className: 'user-tag' 
-                    }, formatReference(todo.user, 'user')),
+                        className: 'user-tag'
+                    }, `@${todo.user.name}`),
                     ' in ',
-                    React.createElement('span', { 
+                    React.createElement('span', {
                         key: 'channel',
-                        className: 'channel-tag' 
-                    }, formatReference(todo.channel, 'channel'))
+                        className: 'channel-tag'
+                    }, `#${todo.channel.name}`)
                 ])
             ])
         )
@@ -65,31 +73,24 @@ function TodoList() {
 // WebSocket Handler Component
 function WebSocketHandler() {
     const setTodos = useSetRecoilState(todosState);
-    const setReferences = useSetRecoilState(referencesState);
+    const ws = React.useRef(null);
 
     React.useEffect(() => {
-        const ws = new WebSocket(`ws://${window.location.host}`);
+        ws.current = new WebSocket(`ws://${window.location.host}`);
 
-        ws.onmessage = (event) => {
+        ws.current.onmessage = (event) => {
             const message = JSON.parse(event.data);
             if (message.type === 'todos') {
                 setTodos(message.data);
-                fetchReferences();
             }
         };
 
-        const fetchReferences = async () => {
-            try {
-                const response = await fetch('/api/resolve-references');
-                const data = await response.json();
-                setReferences(data);
-            } catch (error) {
-                console.error('Error fetching references:', error);
+        return () => {
+            if (ws.current) {
+                ws.current.close();
             }
         };
-
-        return () => ws.close();
-    }, [setTodos, setReferences]);
+    }, [setTodos]);
 
     return null;
 }
@@ -109,4 +110,4 @@ function App() {
 ReactDOM.render(
     React.createElement(App),
     document.getElementById('root')
-); 
+);

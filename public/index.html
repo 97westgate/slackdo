@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Slackdo Todos</title>
     <link rel="stylesheet" href="style.css">
+    <!-- Load React -->
     <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <!-- Load Recoil -->
+    <script src="https://unpkg.com/recoil@0.7.7/umd/recoil.js"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -14,11 +17,6 @@
         const { useState, useEffect } = React;
 
         function TodoCard({ todo, onToggle }) {
-            const handleClick = (e) => {
-                e.stopPropagation();  // Prevent double triggers
-                onToggle(todo.timestamp);
-            };
-
             return React.createElement('div', { 
                 className: `todo-card ${todo.status || ''}`
             }, [
@@ -29,14 +27,14 @@
                     React.createElement('button', {
                         key: 'checkbox',
                         className: `todo-checkbox ${todo.status === 'completed' ? 'checked' : ''}`,
-                        onClick: handleClick
+                        onClick: () => onToggle(todo.timestamp)
                     }, todo.status === 'completed' ? '✓' : ''),
                     React.createElement('span', {
                         key: 'text',
                         className: `todo-text ${todo.status === 'completed' ? 'completed' : ''}`
                     }, todo.task)
                 ]),
-                todo.deadline && React.createElement('div', { 
+                todo.deadline && todo.deadline !== 'null' && React.createElement('div', { 
                     key: 'deadline',
                     className: 'todo-deadline' 
                 }, `⏰ Due: ${todo.deadline}`),
@@ -60,59 +58,37 @@
 
         function App() {
             const [todos, setTodos] = useState([]);
-            const [status, setStatus] = useState('Connecting...');
             const [ws, setWs] = useState(null);
 
             useEffect(() => {
                 const websocket = new WebSocket(`ws://${window.location.host}`);
                 setWs(websocket);
-                
-                websocket.onopen = () => {
-                    setStatus('Connected!');
-                };
 
                 websocket.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    if (data.type === 'todos') {
-                        setTodos(data.data);
-                        setStatus(`Loaded ${data.data.length} todos`);
+                    const message = JSON.parse(event.data);
+                    if (message.type === 'todos') {
+                        setTodos(message.data);
                     }
                 };
 
-                websocket.onerror = (error) => {
-                    setStatus('Error: ' + error);
+                return () => {
+                    if (websocket.readyState === WebSocket.OPEN) {
+                        websocket.close();
+                    }
                 };
-
-                websocket.onclose = () => {
-                    setStatus('Disconnected');
-                };
-
-                return () => websocket.close();
             }, []);
 
             const handleToggle = (timestamp) => {
-                console.log('Toggling todo:', timestamp); // Debug log
                 if (ws && ws.readyState === WebSocket.OPEN) {
-                    const message = JSON.stringify({
+                    ws.send(JSON.stringify({
                         type: 'toggleStatus',
                         timestamp
-                    });
-                    console.log('Sending message:', message); // Debug log
-                    ws.send(message);
-                } else {
-                    console.log('WebSocket not ready:', { 
-                        ws: !!ws, 
-                        readyState: ws ? ws.readyState : 'no socket' 
-                    }); // Debug log
+                    }));
                 }
             };
 
             return React.createElement('div', { className: 'app' }, [
                 React.createElement('h1', { key: 'title' }, '📝 Slackdo Todos'),
-                React.createElement('div', { 
-                    key: 'status',
-                    className: 'status-text'
-                }, status),
                 React.createElement('div', { 
                     key: 'todos', 
                     className: 'todos-container' 
@@ -132,4 +108,4 @@
         );
     </script>
 </body>
-</html> 
+</html>

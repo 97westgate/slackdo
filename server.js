@@ -6,17 +6,39 @@ const path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
 const http = require('http');
 const { formatDate, formatTask } = require('./formatter');
+const SIMILARITY_THRESHOLD = 0.8;
+const recentTodos = new Set();
+const stringSimilarity = require('string-similarity');
 
 // Initialize Express
 const expressApp = express();
 expressApp.use(express.static('public'));
 
-// Initialize Slack app
+// Initialize Slack app with longer timeouts
 const slackApp = new App({
     token: process.env.SLACK_BOT_TOKEN,
     signingSecret: process.env.SLACK_SIGNING_SECRET,
     socketMode: true,
-    appToken: process.env.SLACK_APP_TOKEN
+    appToken: process.env.SLACK_APP_TOKEN,
+    customRoutes: [],  // Empty array to prevent initialization error
+    // Add longer timeouts
+    clientOptions: {
+        slackApiUrl: 'https://slack.com/api/',
+        logger: {
+            debug: () => {},
+            info: () => {},
+            warn: console.warn,
+            error: console.error
+        },
+        agent: undefined,
+        retryConfig: {
+            retries: 5,
+            factor: 1.7,
+            randomize: true
+        },
+        timeout: 30000,  // 30 seconds timeout
+        rejectRateLimitedCalls: false
+    }
 });
 
 // Initialize OpenAI
@@ -25,7 +47,38 @@ const openai = new OpenAI({
 });
 
 // Store todos in memory
-const todos = [];
+const todos = [
+    {
+        task: "🎨 Draw a comic about a superhero potato",
+        deadline: "2024-01-15",
+        user: {
+            id: "U12345678",
+            name: "ArtisticSpud"
+        },
+        channel: {
+            id: "C12345678",
+            name: "random-ideas"
+        },
+        timestamp: new Date().toISOString(),
+        status: null,
+        indentLevel: 0
+    },
+    {
+        task: "🚀 Train my cat to be an astronaut",
+        deadline: null,
+        user: {
+            id: "U87654321",
+            name: "CatWhisperer"
+        },
+        channel: {
+            id: "C87654321",
+            name: "pet-projects"
+        },
+        timestamp: new Date(Date.now() + 1000).toISOString(),
+        status: null,
+        indentLevel: 0
+    }
+];
 
 // Name cache for users and channels
 const nameCache = {
@@ -74,6 +127,12 @@ wss.on('connection', (ws) => {
                 } else {
                     console.log('Todo not found!'); // Debug log
                 }
+            } else if (message.type === 'updateIndent') {
+                const todo = todos.find(t => t.timestamp === message.timestamp);
+                if (todo) {
+                    todo.indentLevel = Math.max(0, Math.min(3, message.indentLevel));
+                    broadcastTodos();
+                }
             }
         } catch (error) {
             console.error('Error handling WebSocket message:', error);
@@ -101,36 +160,16 @@ function broadcastTodos() {
     });
 }
 
-// Add a test todo for debugging
-todos.push({
-  task: "Test todo",
-  deadline: null,
-  user: {
-    id: "U12345678",
-    name: "Test User"
-  },
-  channel: {
-    id: "C12345678",
-    name: "test-channel"
-  },
-  timestamp: new Date().toISOString(),
-  status: null
-});
-
-// Add near the top with other constants
-const SIMILARITY_THRESHOLD = 0.8;
-const recentTodos = new Set();
-
 // Add the duplicate detection function
-function isSimilarToExisting(newTodo) {
-  const newTodoLower = newTodo.toLowerCase();
-  for (const existingTodo of recentTodos) {
-    const similarity = stringSimilarity.compareTwoStrings(newTodoLower, existingTodo);
-    if (similarity > SIMILARITY_THRESHOLD) {
-      return true;
-    }
-  }
-  return false;
+function isSimilarToExisting(newTask) {
+    const threshold = 0.8;  // 80% similarity threshold
+    const existingTasks = todos.map(todo => todo.task.toLowerCase());
+    const newTaskLower = newTask.toLowerCase();
+    
+    return existingTasks.some(task => {
+        const similarity = stringSimilarity.compareTwoStrings(task, newTaskLower);
+        return similarity > threshold;
+    });
 }
 
 // Add name resolution function
@@ -230,7 +269,8 @@ slackApp.message(async ({ message, client }) => {
           name: channelName
         },
         timestamp: new Date().toISOString(),
-        status: null
+        status: null,
+        indentLevel: 0
       });
 
       // Add to recent todos for duplicate checking
@@ -248,12 +288,28 @@ slackApp.message(async ({ message, client }) => {
   }
 });
 
-// Start the servers
+// Start the servers with better error handling
 (async () => {
     try {
-        // Start Slack app first
-        await slackApp.start();
-        console.log('⚡️ Slack bot is running!');
+        // Start Slack app first with retry logic
+        let retries = 0;
+        const maxRetries = 3;
+        
+        while (retries < maxRetries) {
+            try {
+                await slackApp.start();
+                console.log('⚡️ Slack bot is running!');
+                break;
+            } catch (error) {
+                retries++;
+                console.warn(`Failed to start Slack app (attempt ${retries}/${maxRetries}):`, error);
+                if (retries === maxRetries) {
+                    throw error;
+                }
+                // Wait before retrying
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+        }
 
         // Then start HTTP/WebSocket server
         server.listen(3000, () => {
@@ -261,5 +317,6 @@ slackApp.message(async ({ message, client }) => {
         });
     } catch (error) {
         console.error('❌ Error starting servers:', error);
+        process.exit(1);  // Exit if we can't start the servers
     }
 })();
