@@ -70,3 +70,13 @@ You should see: "⚡️ Slack bot is running!"
 - Verify the bot is "Active" (green dot) in Slack
 - Check that the bot has been invited to channels you want it to monitor
 - Ensure your OpenAI API key has sufficient credits
+
+## Limitations
+
+This bot can only monitor messages within a single Slack workspace. It cannot:
+- Monitor messages across multiple workspaces
+- Access messages in other workspaces, even if you're a member
+- Be used with Slack Connect channels between workspaces
+
+This is a Slack platform limitation for security reasons. Enterprise Grid customers may have different capabilities.
+
