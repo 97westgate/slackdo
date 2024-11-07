@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { App } = require('@slack/bolt');
+const OpenAI = require('openai');
 
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
@@ -8,19 +9,29 @@ const app = new App({
   appToken: process.env.SLACK_APP_TOKEN
 });
 
-// Debug: Log when the bot starts up
-process.stdout.write('Starting bot...\n');
-
-// Add error handling
-app.error(async (error) => {
-  process.stdout.write(`⚠️ Error: ${error.message}\n`);
+// Initialize OpenAI with the new syntax
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Listen to all messages
-app.message(async ({ message, say }) => {
-  process.stdout.write(`Received message in channel: ${message.channel}\n`);
-  process.stdout.write(`Message content: ${message.text}\n`);
-  process.stdout.write(`Full message details: ${JSON.stringify(message, null, 2)}\n`);
+app.message(async ({ message }) => {
+  process.stdout.write(`Analyzing message: ${message.text}\n`);
+  
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [{
+        role: "user",
+        content: `Is this message a todo item? Message: "${message.text}"`,
+      }],
+      max_tokens: 60,
+    });
+    if (completion.choices[0].message.content.toLowerCase().includes('yes')) {
+      process.stdout.write('Todo item detected!\n');
+    }
+  } catch (error) {
+    process.stdout.write(`Error checking todo: ${error}\n`);
+  }
 });
 
 (async () => {

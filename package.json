@@ -19,6 +19,7 @@
   "homepage": "https://github.com/97westgate/slackdo#readme",
   "dependencies": {
     "@slack/bolt": "^4.1.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "openai": "^4.71.1"
   }
 }
