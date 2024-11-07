@@ -25,7 +25,7 @@ A simple Slack bot that monitors messages and detects todo items using OpenAI's 
    SLACK_BOT_TOKEN=xoxb-your-bot-token-here
    SLACK_SIGNING_SECRET=your-signing-secret-here
    SLACK_APP_TOKEN=xapp-your-app-token-here
-   SLACKDO_CHANNEL_ID=D07V4EMTCTG-your-slackdo-dm-channel-id
+   SLACKDO_CHANNEL_ID=your-slackdo-dm-channel-id
 
    # OpenAI Credentials
    OPENAI_API_KEY=your-openai-api-key-here
